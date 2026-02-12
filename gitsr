@@ -16,33 +16,54 @@
 #   ./gitsr <submodule_path>
 #
 
+set -e
+
 SUBMODULE="$1"
 
 if [ -z "$SUBMODULE" ]; then
+    echo "gitsr - safely remove a Git submodule."
     echo "Usage: $0 <submodule_path>"
     exit 1
 fi
 
+# Check if submodule exists in .gitmodules
+if ! grep -Fq "[submodule \"$SUBMODULE\"]" .gitmodules; then
+    echo "Error: Submodule '$SUBMODULE' not found in .gitmodules."
+    exit 1
+fi
+
+printf "You are about to permanently remove the submodule '%s'.\n" "$SUBMODULE"
+printf "Are you sure you want to continue? [y/N]: "
+read CONFIRM
+case "$CONFIRM" in
+[yY][eE][sS] | [yY]) ;;
+*)
+    echo "Aborted."
+    exit 0
+    ;;
+esac
+
 echo "Removing submodule: $SUBMODULE ..."
 
-# Deinitialize the submodule (removes its metadata from .git/config)
-git submodule deinit -f "$SUBMODULE"
+# Deinitialize the submodule (removes from .git/config, cleans worktree)
+git submodule deinit -f "$SUBMODULE" || {
+    echo "Failed to deinitialize submodule."
+    exit 1
+}
 
-# Remove the submodule from the Git index
-git rm -f "$SUBMODULE"
+# Remove from the Git index and .gitmodules (stages both changes)
+git rm -f "$SUBMODULE" || {
+    echo "Failed to remove submodule from index."
+    exit 1
+}
 
-# Remove the submodule directory from .git/modules/
-rm -rf "$(git config --file .git/config --get submodule."$SUBMODULE".path)"
+# Remove the cached module data
+MODULE_DIR=".git/modules/$SUBMODULE"
+if [ -d "$MODULE_DIR" ]; then
+    rm -rf "$MODULE_DIR"
+fi
 
-# Remove the submodule section from .git/config
-git config --remove-section submodule."$SUBMODULE" 2>/dev/null
-
-# FIXME: update command to remove the section without affecting other sections
-# Remove the submodule entry from .gitmodules, including the section header
-sed -i '' -e '\|\[submodule "$SUBMODULE"\]|,\|\[submodule |{/\[submodule */!d;}' .gitmodules
-
-# Commit the changes to keep the repository clean
-git add .gitmodules
+# Commit the changes
 git commit -m "chore(submodule)!: remove $SUBMODULE submodule"
 
-echo "Submodule $SUBMODULE removed successfully!"
+echo "Submodule '$SUBMODULE' removed successfully!"
