@@ -8,7 +8,7 @@ This script is provided "as is", without warranty of any kind, express or implie
 
 ## Installation
 
-To use these helpers, simply copy the files to your preferred location, and source them in your configuration file.
+Clone the repository and add it to your `PATH`:
 
 ```sh
 git clone https://github.com/reybits/git-tools.git ~/.git-tools
@@ -24,7 +24,8 @@ export PATH=~/.git-tools:$PATH
 
 Here’s a list of available Git helpers:
 
-- **gitsr**: Remove submodule.
+- **gitsr**: Safely remove a git submodule (deinit, cleanup, auto-commit). Usage: `gitsr <submodule_path>`
+- **gitupmod**: Update all submodules to the latest commit. Optionally switches to a specified branch first. Usage: `gitupmod [branch]`
 
 *For more information on each helper function, check the individual documentation in the helper files.*
 
@@ -39,5 +40,3 @@ Feel free to fork this repository and create pull requests. Any improvements or 
 ## License
 
 This project is licensed under the MIT License - see the `LICENSE` file for details.
-
-Feel free to adjust it as needed! Let me know if you'd like to add more details or specific helpers.

@@ -1,0 +1,143 @@
+#!/bin/sh
+#
+# gitupmod - update Git submodules to the latest commit
+#
+# MIT License
+# Author: Andrey A. Ugolnik <andrey@ugolnik.info>
+#
+# DISCLAIMER:
+# This script is provided "as is", without warranty of any kind, express or implied,
+# including but not limited to the warranties of merchantability, fitness for a particular
+# purpose, and noninfringement. In no event shall the author be liable for any claim,
+# damages, or other liability, whether in an action of contract, tort, or otherwise,
+# arising from, out of, or in connection with the script or the use of this script.
+#
+# Usage:
+#   ./gitupmod [branch]
+#
+# Without arguments: updates each submodule on its current branch.
+# With a branch name: switches each submodule to that branch, then updates.
+#
+
+set -e
+
+TARGET_BRANCH="$1"
+
+# Colors (disabled when output is not a terminal)
+if [ -t 1 ]; then
+    C_RESET='\033[0m'
+    C_NAME='\033[1;37m'
+    C_BRANCH='\033[0;36m'
+    C_OK='\033[0;32m'
+    C_WARN='\033[0;33m'
+    C_ERR='\033[0;31m'
+else
+    C_RESET='' C_NAME='' C_BRANCH='' C_OK='' C_WARN='' C_ERR=''
+fi
+
+GITMODULES=".gitmodules"
+
+if [ ! -f "$GITMODULES" ]; then
+    echo "Error: $GITMODULES not found."
+    exit 1
+fi
+
+# Collect submodule names from .gitmodules
+NAMES=$(git config -f "$GITMODULES" --get-regexp '^submodule\..*\.path$' | sed 's/^submodule\.\(.*\)\.path .*/\1/')
+
+if [ -z "$NAMES" ]; then
+    echo "No submodules found in $GITMODULES."
+    exit 0
+fi
+
+TOTAL=0
+UPDATED=0
+FAILED=0
+
+for MODULE_KEY in $NAMES; do
+    TOTAL=$((TOTAL + 1))
+    MODULE_PATH=$(git config -f "$GITMODULES" "submodule.${MODULE_KEY}.path")
+    MODULE_NAME=$(basename "$MODULE_PATH")
+
+    # Blank line between modules
+    if [ "$TOTAL" -gt 1 ]; then
+        echo ""
+    fi
+
+    # Print module name immediately so the user sees progress
+    printf "${C_NAME}%s${C_RESET}\n" "$MODULE_NAME"
+
+    # Initialize submodule if not yet cloned
+    if [ ! -d "$MODULE_PATH/.git" ] && [ ! -f "$MODULE_PATH/.git" ]; then
+        printf "  init... "
+        if ! git submodule update --init --quiet "$MODULE_PATH" 2>/dev/null; then
+            printf "${C_ERR}failed${C_RESET}\n"
+            FAILED=$((FAILED + 1))
+            continue
+        fi
+        printf "${C_OK}ok${C_RESET}\n"
+    fi
+
+    # Get current branch
+    CURRENT_BRANCH=$(git -C "$MODULE_PATH" symbolic-ref --short HEAD 2>/dev/null) || CURRENT_BRANCH=""
+
+    # Get current short hash before update
+    OLD_HASH=$(git -C "$MODULE_PATH" rev-parse --short HEAD 2>/dev/null) || OLD_HASH="unknown"
+
+    # Determine which branch to use
+    CHECKOUT_BRANCH="$TARGET_BRANCH"
+    if [ -z "$CHECKOUT_BRANCH" ] && [ -z "$CURRENT_BRANCH" ]; then
+        # Detached HEAD and no target branch: try .gitmodules branch, then remote default
+        CHECKOUT_BRANCH=$(git config -f "$GITMODULES" "submodule.${MODULE_KEY}.branch" 2>/dev/null) || true
+        if [ -z "$CHECKOUT_BRANCH" ]; then
+            CHECKOUT_BRANCH=$(git -C "$MODULE_PATH" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||') || true
+        fi
+        if [ -z "$CHECKOUT_BRANCH" ]; then
+            printf "  ${C_ERR}detached, no branch configured${C_RESET}\n"
+            FAILED=$((FAILED + 1))
+            continue
+        fi
+    fi
+
+    # Switch branch if needed
+    if [ -n "$CHECKOUT_BRANCH" ] && [ "$CURRENT_BRANCH" != "$CHECKOUT_BRANCH" ]; then
+        printf "  checkout ${C_BRANCH}%s${C_RESET}... " "$CHECKOUT_BRANCH"
+        if git -C "$MODULE_PATH" checkout "$CHECKOUT_BRANCH" --quiet 2>/dev/null; then
+            CURRENT_BRANCH="$CHECKOUT_BRANCH"
+            printf "${C_OK}ok${C_RESET}\n"
+        else
+            printf "${C_ERR}failed${C_RESET}\n"
+            FAILED=$((FAILED + 1))
+            continue
+        fi
+    else
+        printf "  branch ${C_BRANCH}%s${C_RESET}\n" "$CURRENT_BRANCH"
+    fi
+
+    # Fetch and pull
+    printf "  pull... "
+    git -C "$MODULE_PATH" pull --ff-only --quiet 2>/dev/null && PULL_OK=1 || PULL_OK=0
+
+    # Get new short hash after update
+    NEW_HASH=$(git -C "$MODULE_PATH" rev-parse --short HEAD 2>/dev/null) || NEW_HASH="unknown"
+
+    # Determine status
+    if [ "$PULL_OK" = "0" ]; then
+        printf "${C_ERR}failed${C_RESET}\n"
+        FAILED=$((FAILED + 1))
+    elif [ "$OLD_HASH" = "$NEW_HASH" ]; then
+        printf "${C_OK}up to date${C_RESET} %s\n" "$OLD_HASH"
+        UPDATED=$((UPDATED + 1))
+    else
+        printf "${C_OK}updated${C_RESET} %s -> %s\n" "$OLD_HASH" "$NEW_HASH"
+        UPDATED=$((UPDATED + 1))
+    fi
+done
+
+# Summary
+echo ""
+if [ "$FAILED" -gt 0 ]; then
+    printf "${C_WARN}%d modules: %d updated, %d failed${C_RESET}\n" "$TOTAL" "$UPDATED" "$FAILED"
+else
+    printf "${C_OK}%d modules: all updated${C_RESET}\n" "$TOTAL"
+fi
