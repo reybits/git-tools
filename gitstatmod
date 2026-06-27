@@ -1,0 +1,47 @@
+#!/bin/sh
+#
+# gitstatmod - show a compact status of Git submodules
+#
+# MIT License
+# Author: Andrey A. Ugolnik <andrey@ugolnik.info>
+#
+# DISCLAIMER:
+# This script is provided "as is", without warranty of any kind, express or implied,
+# including but not limited to the warranties of merchantability, fitness for a particular
+# purpose, and noninfringement. In no event shall the author be liable for any claim,
+# damages, or other liability, whether in an action of contract, tort, or otherwise,
+# arising from, out of, or in connection with the script or the use of this script.
+#
+# Usage:
+#   ./gitstatmod
+#
+# Prints only submodules that need attention: working tree changes or unpushed
+# commits. Clean submodules produce no output.
+#
+
+set -e
+
+git submodule foreach --quiet --recursive '
+    dirty=$(git status --porcelain)
+
+    # Unpushed commits, detected via remote-tracking refs so it also works in
+    # detached HEAD. Skip when no remotes are tracked, otherwise every commit
+    # would be reported as unpushed.
+    unpushed=
+    if [ -n "$(git for-each-ref refs/remotes)" ]; then
+        unpushed=$(git log --oneline HEAD --not --remotes 2>/dev/null || true)
+    fi
+
+    [ -z "$dirty" ] && [ -z "$unpushed" ] && exit 0
+
+    echo "* [$displaypath]"
+
+    # Match on the porcelain XY columns: X = index/staged, Y = working tree.
+    echo "$dirty" | grep -qE "^[MADRCT]"      && echo "  • staged changes"
+    echo "$dirty" | grep -qE "^.[MDT]"        && echo "  • uncommitted changes"
+    echo "$dirty" | grep -qE "^[?][?]"        && echo "  • untracked files"
+    echo "$dirty" | grep -qE "^(U.|.U|AA|DD)" && echo "  • merge conflicts"
+    [ -n "$unpushed" ] && echo "  • needs push ($(echo "$unpushed" | wc -l | tr -d " ") commit(s))"
+
+    echo
+'

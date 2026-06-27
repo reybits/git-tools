@@ -26,6 +26,7 @@ Here’s a list of available Git helpers:
 
 - **gitsr**: Safely remove a git submodule (deinit, cleanup, auto-commit). Usage: `gitsr <submodule_path>`
 - **gitupmod**: Update all submodules to the latest commit. Optionally switches to a specified branch first. Usage: `gitupmod [branch]`
+- **gitstatmod**: Show a compact status of all submodules, listing only those with working-tree changes or unpushed commits. Usage: `gitstatmod`
 
 *For more information on each helper function, check the individual documentation in the helper files.*
 
