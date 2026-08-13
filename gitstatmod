@@ -13,35 +13,128 @@
 # arising from, out of, or in connection with the script or the use of this script.
 #
 # Usage:
-#   ./gitstatmod
+#   ./gitstatmod [OPTION]...
 #
-# Prints only submodules that need attention: working tree changes or unpushed
-# commits. Clean submodules produce no output.
+# By default, prints only submodules that need attention (working tree changes
+# or unpushed commits) in full form. Clean submodules produce no output.
+#
+# Options:
+#       --all      Include clean submodules, not just those needing attention.
+#       --oneline  Print one line per submodule: path, branch, short SHA, state.
+#   -h, --help     Show this help and exit.
+#
+# The flags combine: --all --oneline lists every submodule, one line each.
 #
 
 set -e
 
-git submodule foreach --quiet --recursive '
-    dirty=$(git status --porcelain)
+show_help() {
+    cat <<'EOF'
+Usage: gitstatmod [OPTION]...
 
-    # Unpushed commits, detected via remote-tracking refs so it also works in
-    # detached HEAD. Skip when no remotes are tracked, otherwise every commit
-    # would be reported as unpushed.
-    unpushed=
-    if [ -n "$(git for-each-ref refs/remotes)" ]; then
-        unpushed=$(git log --oneline HEAD --not --remotes 2>/dev/null || true)
-    fi
+Show a compact status of Git submodules.
 
-    [ -z "$dirty" ] && [ -z "$unpushed" ] && exit 0
+By default, prints only submodules that need attention (working tree changes
+or unpushed commits) in full form. Clean submodules produce no output.
 
-    echo "* [$displaypath]"
+Options:
+      --all      Include clean submodules, not just those needing attention.
+      --oneline  Print one line per submodule: path, branch, short SHA, state.
+  -h, --help     Show this help and exit.
 
-    # Match on the porcelain XY columns: X = index/staged, Y = working tree.
-    echo "$dirty" | grep -qE "^[MADRCT]"      && echo "  • staged changes"
-    echo "$dirty" | grep -qE "^.[MDT]"        && echo "  • uncommitted changes"
-    echo "$dirty" | grep -qE "^[?][?]"        && echo "  • untracked files"
-    echo "$dirty" | grep -qE "^(U.|.U|AA|DD)" && echo "  • merge conflicts"
-    [ -n "$unpushed" ] && echo "  • needs push ($(echo "$unpushed" | wc -l | tr -d " ") commit(s))"
+The flags combine: --all --oneline lists every submodule, one line each.
+EOF
+}
 
-    echo
-'
+# Walk submodules once. Reads GSM_ALL / GSM_ONELINE from the environment:
+# GSM_ALL=1 keeps clean submodules, GSM_ONELINE=1 switches to one line each.
+walk_submodules() {
+    GSM_ALL="$show_all" GSM_ONELINE="$oneline" git submodule foreach --quiet --recursive '
+        dirty=$(git status --porcelain)
+
+        # Unpushed commits, detected via remote-tracking refs so it also works
+        # in detached HEAD. Skip when no remotes are tracked, otherwise every
+        # commit would be reported as unpushed.
+        unpushed=
+        if [ -n "$(git for-each-ref refs/remotes)" ]; then
+            unpushed=$(git log --oneline HEAD --not --remotes 2>/dev/null || true)
+        fi
+
+        # Without --all, report only submodules that need attention.
+        if [ "$GSM_ALL" != "1" ] && [ -z "$dirty" ] && [ -z "$unpushed" ]; then
+            exit 0
+        fi
+
+        if [ "$GSM_ONELINE" = "1" ]; then
+            # Branch: current one if attached, else the tracking branch from
+            # .gitmodules, else the remote default, else report as detached.
+            branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+            if [ -z "$branch" ]; then
+                branch=$(git config -f "$toplevel/.gitmodules" "submodule.$name.branch" 2>/dev/null || true)
+            fi
+            if [ -z "$branch" ]; then
+                branch=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed "s|refs/remotes/origin/||" || true)
+            fi
+            [ -z "$branch" ] && branch="detached"
+
+            short=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+
+            # State: comma-joined tokens, or "clean" when nothing to report.
+            state=""
+            [ -n "$dirty" ] && state="dirty"
+            if [ -n "$unpushed" ]; then
+                if [ -n "$state" ]; then
+                    state="$state,needs-push"
+                else
+                    state="needs-push"
+                fi
+            fi
+            [ -z "$state" ] && state="clean"
+
+            printf "%s\t%s\t%s\t%s\n" "$displaypath" "$branch" "$short" "$state"
+        else
+            echo "$displaypath"
+            if [ -z "$dirty" ] && [ -z "$unpushed" ]; then
+                echo " * clean"
+            else
+                # Match on the porcelain XY columns: X = index/staged, Y = working tree.
+                echo "$dirty" | grep -qE "^[MADRCT]"      && echo " * staged changes"
+                echo "$dirty" | grep -qE "^.[MDT]"        && echo " * uncommitted changes"
+                echo "$dirty" | grep -qE "^[?][?]"        && echo " * untracked files"
+                echo "$dirty" | grep -qE "^(U.|.U|AA|DD)" && echo " * merge conflicts"
+                [ -n "$unpushed" ] && echo " * needs push ($(echo "$unpushed" | wc -l | tr -d " ") commit(s))"
+            fi
+            echo
+        fi
+    '
+}
+
+show_all=0
+oneline=0
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        --all)
+            show_all=1
+            ;;
+        --oneline)
+            oneline=1
+            ;;
+        *)
+            printf "gitstatmod: unknown option: %s\n" "$1" >&2
+            show_help >&2
+            exit 1
+            ;;
+    esac
+    shift
+done
+
+if [ "$oneline" = "1" ]; then
+    walk_submodules | column -t -s "$(printf "\t")"
+else
+    walk_submodules
+fi
