@@ -30,6 +30,16 @@ Here’s a list of available Git helpers:
 
 *For more information on each helper function, check the individual documentation in the helper files.*
 
+## Versioning
+
+Each script is versioned on its own: the version is the `# Version: X.Y.Z` line in the script header. A version change is a separate commit, `chore(version): bump <script> to X.Y.Z`, that touches nothing else. The increment follows the commits since the previous bump: `feat` raises minor; `fix`, `refactor`, `perf`, `build` and `chore` raise patch; a breaking change (`!`) raises major.
+
+Releases are not tagged: the scripts are used straight from a clone, and the bump commit already marks each version. A script's version history:
+
+```sh
+git log --oneline -G'^# Version:' -- gitupmod
+```
+
 ## Customization
 
 You can modify these helpers to add more functionality or adjust them according to your Git workflow. Simply edit the respective helper functions within the source files.
