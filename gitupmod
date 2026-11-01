@@ -19,6 +19,9 @@
 # Without arguments: updates each submodule on its current branch.
 # With a branch name: switches each submodule to that branch, then updates.
 #
+# Each updated submodule lists the commits behind "old -> new":
+# '>' came in, '<' left HEAD (e.g. after a branch switch).
+#
 
 set -e
 
@@ -132,6 +135,9 @@ for MODULE_KEY in $NAMES; do
     else
         printf "${C_OK}updated${C_RESET} %s -> %s\n" "$OLD_HASH" "$NEW_HASH"
         UPDATED=$((UPDATED + 1))
+        # '>' came in, '<' left HEAD (branch switch, or a pin off the tracked
+        # branch). No pager: a long list would stop the loop until 'q'.
+        git -C "$MODULE_PATH" --no-pager log --left-right --format='    %m %h %s' "$OLD_HASH...$NEW_HASH" 2>/dev/null || true
     fi
 done
 
